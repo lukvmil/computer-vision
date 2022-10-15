@@ -80,13 +80,13 @@ for i in images:
     img_bw_diff = cv2.absdiff(img_bw_diff_high, img_bw_diff_low)
 
     # clahe applied for alternate pipeline, this was less effective than other approach
-    clahe = cv2.createCLAHE(clipLimit = 10)
-    img_clahe = clahe.apply(img_bw)
+    # clahe = cv2.createCLAHE(clipLimit = 10)
+    # img_clahe = clahe.apply(img_bw)
 
-    img_clahe_blurred = cv2.GaussianBlur(img_clahe, (51, 51), 0)
-    img_clahe_diff = cv2.absdiff(img_clahe, img_clahe_blurred)
+    # img_clahe_blurred = cv2.GaussianBlur(img_clahe, (51, 51), 0)
+    # img_clahe_diff = cv2.absdiff(img_clahe, img_clahe_blurred)
 
-    img_clahe_thresh = cv2.threshold(img_clahe_diff, 170, 255, cv2.THRESH_BINARY_INV)[1]
+    # img_clahe_thresh = cv2.threshold(img_clahe_diff, 170, 255, cv2.THRESH_BINARY_INV)[1]
 
     # morphological operations, thresholindg
     img_bw_close = cv2.morphologyEx(img_bw_diff, cv2.MORPH_CLOSE, make_kernel(5), iterations=1)
@@ -182,12 +182,24 @@ for i in images:
                         value_low = value1
 
                     # print(area)
-                    show_image(subset, 'mask')
+                    # show_image(subset, 'mask')
 
                     cv2.drawContours(img_thresh3, [approx], 0, (0, 0, 255), 5)
                 
     # show_image(np.hstack((img_clahe, img_clahe_blurred, img_clahe_diff)), "clahe", (600*3, 800))
     show_image(np.hstack((to3(img_bw), to3(img_bw_diff), img_thresh3)), "pipeline", (600*3, 800))
+
+    # show_image(img, 'img')
+    # show_image(img_bw, 'img_bw')
+    # show_image(img_bw_blurred_high, "blurred_high")
+    # show_image(img_bw_diff_low, "diff_low")
+    # show_image(img_bw_diff_high, "diff_high")
+    # show_image(img_bw_diff, "combined_diff")
+    # show_image(img_bw_close, "closed")
+    # show_image(img_thresh, "thresh")
+    # show_image(img_thresh_close, "thresh_closed")
+    # show_image(img_thresh_dilate, "thresh_dilate")
+    # show_image(img_thresh3, "contours")
 
     action = cv2.waitKey(sleep)
     if action & 0xFF == 27:
