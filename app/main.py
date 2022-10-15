@@ -55,7 +55,7 @@ def weighted_average(dict):
     return average
 
 
-directory = "aruco\\custom_aruco"
+directory = "example_markers"
 images = [directory + '\\' + os.fsdecode(f) for f in os.listdir(os.fsencode(directory))]
 sleep = 1000000
 
