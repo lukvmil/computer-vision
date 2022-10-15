@@ -103,22 +103,22 @@ for i in images:
         area = cv2.contourArea(c)
 
         # considers "significant" contours
-        if area > 300:
+        if area > 200_000:
             approx = cv2.approxPolyDP(c, 0.009 * cv2.arcLength(c, True), True)
             
             # only looking for four sided polygons
             if len(approx) == 4:
+                print("target found with correct area and sides")
                 lengths = get_poly_lengths(approx)
                 # checks if lengths are within a % of the mean, approximately square
                 if dist_from_mean_within(lengths, 3):
+                    print("side length ratio correct")
                     
                     # contour converted to mask
                     mask = np.zeros(img_bw.shape, np.uint8)
                     cv2.drawContours(mask, [approx], 0, (255), -1)
                     # used to mask and isolate from grayscale image
                     subset = cv2.bitwise_and(img_bw, img_bw, mask=mask)
-
-                    # show_image(subset, 'mask')
 
                     # histogram calculated for each match
                     hist = cv2.calcHist([img_bw], [0], mask, [256], (0, 256), accumulate=False)
@@ -129,10 +129,14 @@ for i in images:
 
                     # converting to python list
                     hist_dict = {}
-                    for i, v in enumerate(hist.tolist()):
-                        val = int(v[0])
+                    hist_list = [int(x[0]) for x in hist.tolist()]
+
+                    # avg val / 2
+                    clamp_value = (sum(hist_list) / len(hist_list)) / 2
+
+                    for i, val in enumerate(hist_list):
                         # clamps values below 100 to 0, better show gap between histogram peaks
-                        hist_dict[i] = val if val > 100 else 0
+                        hist_dict[i] = val if val > clamp_value else 0
 
                     segments = []
                     curr_segment = {}
@@ -148,19 +152,39 @@ for i in images:
                     # sorted by segment length in descending order
                     segments.sort(key=lambda x: len(x), reverse=True)
 
+                    cv2.drawContours(img_thresh3, [approx], 0, (0, 255, 0), 5)
+
+                    # plt.figure()
+                    # plt.plot(hist, color="red")
+                    # plt.title("Value")
+                    # plt.show()
+
+                    if (len(segments) < 2):
+                        print("less than 2 values detected, discarding")
+                        continue
+
+                    min_segment_width = 5
+
+                    if (len(segments[0]) < min_segment_width) or (len(segments[1]) < min_segment_width):
+                        print("value peak width less than 5, discarding")
+                        continue
+
                     # checks that there are two distinct value peaks with a width > 5 distinct values
-                    if (len(segments) >= 2) and (len(segments[0]) > 5) and (len(segments[1]) > 5):
-                        value1 = weighted_average(segments[0])
-                        value2 = weighted_average(segments[1])
+                    
+                    value1 = weighted_average(segments[0])
+                    value2 = weighted_average(segments[1])
 
-                        if value1 > value2:
-                            value_high = value1
-                            value_low = value2
-                        else:
-                            value_high = value2
-                            value_low = value1
+                    if value1 > value2:
+                        value_high = value1
+                        value_low = value2
+                    else:
+                        value_high = value2
+                        value_low = value1
 
-                        cv2.drawContours(img_thresh3, [approx], 0, (0, 0, 255), 5)
+                    # print(area)
+                    show_image(subset, 'mask')
+
+                    cv2.drawContours(img_thresh3, [approx], 0, (0, 0, 255), 5)
                 
     # show_image(np.hstack((img_clahe, img_clahe_blurred, img_clahe_diff)), "clahe", (600*3, 800))
     show_image(np.hstack((to3(img_bw), to3(img_bw_diff), img_thresh3)), "pipeline", (600*3, 800))
