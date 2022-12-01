@@ -17,6 +17,9 @@ def make_kernel(size):
 def to3(img):
     return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
 
+def get_dist(a, b):
+    return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
+
 def get_poly_lengths(poly):
     lengths = []
     for i, curr_point in enumerate(poly):
@@ -58,13 +61,33 @@ def weighted_average(dict):
 directory = "example_markers"
 images = [directory + '\\' + os.fsdecode(f) for f in os.listdir(os.fsencode(directory))]
 sleep = 1000000
+standard_height = 2000
+
+USE_VIDEO = True
+
+if USE_VIDEO:
+    vid = cv2.VideoCapture(0)
+    sleep = 1
 
 # clahe
 # kernelizied correlation filters
 # trackerkcf
 
-for i in images:
-    img = cv2.imread(i)
+img_id = 0
+while True:
+    if USE_VIDEO:
+        ret, img = vid.read()
+    else:
+        img = cv2.imread(images[img_id])
+
+    # automatically resizes to standard height while preserving aspect ratio
+    height, width, channels = img.shape
+    aspect_ratio = width / height
+    
+    normalized_height = standard_height
+    normalized_width = int(standard_height * aspect_ratio)
+
+    img = cv2.resize(img, (normalized_width, normalized_height))
 
     img_bw = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
@@ -109,6 +132,7 @@ for i in images:
             # only looking for four sided polygons
             if len(approx) == 4:
                 print("target found with correct area and sides")
+
                 lengths = get_poly_lengths(approx)
                 # checks if lengths are within a % of the mean, approximately square
                 if dist_from_mean_within(lengths, 3):
@@ -116,6 +140,48 @@ for i in images:
                     
                     # contour converted to mask
                     mask = np.zeros(img_bw.shape, np.uint8)
+
+                    # stripping double nested list
+                    points = [x[0] for x in approx.tolist()]
+
+                    sum_point = [0,0]
+                    for p in points:
+                        sum_point[0] += p[0]
+                        sum_point[1] += p[1]
+                    
+                    avg_point = [int(sum_point[0] / 4), int(sum_point[1] / 4)]
+
+                    normalized_points = [ [x[0] - avg_point[0], x[1] - avg_point[1]] for x in points ]
+
+                    print(points)
+                    print(normalized_points)
+                    print(avg_point)
+
+                    normalized_points.sort(key=lambda x: math.atan2(x[1], x[0]), reverse=False)
+
+                    side_lengths = [
+                        get_dist(normalized_points[0], normalized_points[1]),
+                        get_dist(normalized_points[1], normalized_points[2]),
+                        get_dist(normalized_points[2], normalized_points[3]),
+                        get_dist(normalized_points[3], normalized_points[0])
+                    ]
+
+                    print(normalized_points)
+
+                    size = int(max(side_lengths))
+
+                    print(side_lengths)
+                    print(size)
+
+                    src = np.float32(approx)
+                    dst = np.float32([[0,0], [size-1, 0], [size-1, size-1], [0, size-1]])
+
+                    H_mat = cv2.getPerspectiveTransform(src, dst)
+
+                    corrected_square = cv2.warpPerspective(img, H_mat, (size, size), flags=cv2.INTER_NEAREST)
+
+                    show_image(corrected_square, 'square')
+
                     cv2.drawContours(mask, [approx], 0, (255), -1)
                     # used to mask and isolate from grayscale image
                     subset = cv2.bitwise_and(img_bw, img_bw, mask=mask)
@@ -182,7 +248,8 @@ for i in images:
                         value_low = value1
 
                     # print(area)
-                    # show_image(subset, 'mask')
+                    print(value_high, value_low)
+                    show_image(subset, 'mask')
 
                     cv2.drawContours(img_thresh3, [approx], 0, (0, 0, 255), 5)
                 
@@ -201,15 +268,23 @@ for i in images:
     # show_image(img_thresh_dilate, "thresh_dilate")
     # show_image(img_thresh3, "contours")
 
+    
     action = cv2.waitKey(sleep)
     if action & 0xFF == 27:
         break
     elif action == ord(' '):
+        if not USE_VIDEO:
+            img_id += 1
+            if img_id >= len(images):
+                break
         continue
     elif action == ord('r'):
         sleep = 1
     elif action == ord('s'):
         sleep = 1000000
 
+    
+if USE_VIDEO:
+    vid.release()
 
 cv2.destroyAllWindows()
