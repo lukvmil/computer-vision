@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import math
+import json
 # from skimage import measure
 
 def show_image(img, title="", size=(600, 800)):
@@ -58,15 +59,50 @@ def weighted_average(dict):
     return average
 
 
-directory = "example_markers"
+def draw_grid(img, grid_shape, color=(0, 255, 0), thickness=1):
+    h, w, _ = img.shape
+    rows, cols = grid_shape
+    dy, dx = h / rows, w / cols
+
+    # draw vertical lines
+    for x in np.linspace(start=dx, stop=w-dx, num=cols-1):
+        x = int(round(x))
+        cv2.line(img, (x, 0), (x, h), color=color, thickness=thickness)
+
+    # draw horizontal lines
+    for y in np.linspace(start=dy, stop=h-dy, num=rows-1):
+        y = int(round(y))
+        cv2.line(img, (0, y), (w, y), color=color, thickness=thickness)
+
+    return img
+
+
+with open('aruco.json', 'r') as f:
+    markers = json.load(f)
+
+marker_lookup = {}
+
+# converts integer representation of markers to binary grid for later use in image analysis
+for i, orientations in enumerate(markers):
+    for marker in orientations:
+        bin_repr1 = format(marker[0], '08b')
+        bin_repr2 = format(marker[1], '08b')
+        code = (bin_repr1[:4], bin_repr1[4:], bin_repr2[:4], bin_repr2[4:])
+        marker_lookup[code] = i
+
+print(marker_lookup)
+
+directory = "aruco/shadows_only"
 images = [directory + '\\' + os.fsdecode(f) for f in os.listdir(os.fsencode(directory))]
 sleep = 1000000
-standard_height = 2000
+standard_height = 3000
+marker_size = 4
+marker_size += 2 # accounting for boundary pixels
 
 USE_VIDEO = True
 
 if USE_VIDEO:
-    vid = cv2.VideoCapture(0)
+    vid = cv2.VideoCapture(2)
     sleep = 1
 
 # clahe
@@ -102,9 +138,11 @@ while True:
     # the high and low pass are diffed to remove noise / softer edges form shadows
     img_bw_diff = cv2.absdiff(img_bw_diff_high, img_bw_diff_low)
 
+    # use three different pairs and pick the best = highest mean pixel value
+
     # clahe applied for alternate pipeline, this was less effective than other approach
-    # clahe = cv2.createCLAHE(clipLimit = 10)
-    # img_clahe = clahe.apply(img_bw)
+    clahe = cv2.createCLAHE(clipLimit = 10)
+    img_clahe = clahe.apply(img_bw)
 
     # img_clahe_blurred = cv2.GaussianBlur(img_clahe, (51, 51), 0)
     # img_clahe_diff = cv2.absdiff(img_clahe, img_clahe_blurred)
@@ -178,9 +216,15 @@ while True:
 
                     H_mat = cv2.getPerspectiveTransform(src, dst)
 
-                    corrected_square = cv2.warpPerspective(img, H_mat, (size, size), flags=cv2.INTER_NEAREST)
+                    normalized_marker_size = 256
 
-                    show_image(corrected_square, 'square')
+                    corrected_marker = cv2.warpPerspective(img, H_mat, (size, size), flags=cv2.INTER_NEAREST)
+                    normalized_marker = cv2.resize(corrected_marker, (normalized_marker_size, normalized_marker_size))
+
+                    draw_grid(normalized_marker, (6, 6))
+
+                    show_image(normalized_marker, 'square')
+
 
                     cv2.drawContours(mask, [approx], 0, (255), -1)
                     # used to mask and isolate from grayscale image
@@ -249,7 +293,38 @@ while True:
 
                     # print(area)
                     print(value_high, value_low)
-                    show_image(subset, 'mask')
+                    # show_image(subset, 'mask')
+
+                    # pixel_threshold = (value_high + value_low) / 2
+                    pixel_threshold = normalized_marker.sum() / (len(normalized_marker) * len(normalized_marker[0]))
+                    pixel_size = normalized_marker_size / marker_size
+
+                    marker_code = []
+
+                    for py in range(marker_size):
+                        sub_code = ''
+                        for px in range(marker_size):
+                            pr = int(px * pixel_size)
+                            pl = int(pr + pixel_size)
+                            pt = int(py * pixel_size)
+                            pb = int(pt + pixel_size)
+                            # print(pr, pt)
+                            pixel = normalized_marker[pt:pb, pr:pl]
+                            # show_image(pixel, f"{px}:{py}")
+                            pixel_sum = pixel.sum()
+                            pixel_avg = pixel_sum / pixel_size ** 2
+                            pixel_value = int(pixel_avg) > pixel_threshold
+
+                            if (px != 0) and (py != 0) and (px != marker_size - 1) and (py != marker_size - 1):
+                                sub_code += '1' if pixel_value else '0'
+
+                            print('X' if pixel_value else ' ', end="")
+                        print()
+                        if sub_code:
+                            marker_code.append(sub_code)
+                    print(marker_code)
+                    marker_id = marker_lookup.get(tuple(marker_code))
+                    print('MATCH FOUND:', marker_id)
 
                     cv2.drawContours(img_thresh3, [approx], 0, (0, 0, 255), 5)
                 
