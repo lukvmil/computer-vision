@@ -3,103 +3,19 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import math
-import json
-# from skimage import measure
 
-def show_image(img, title="", size=(600, 800)):
-    cv2.namedWindow(title, cv2.WINDOW_KEEPRATIO)
-    cv2.imshow(title, img)
-    cv2.resizeWindow(title, size[0], size[1])
-
-def make_kernel(size):
-    return np.ones((size,size), np.uint8)
-
-# convert grayscale to bgr
-def to3(img):
-    return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-
-def get_dist(a, b):
-    return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
-
-def get_poly_lengths(poly):
-    lengths = []
-    for i, curr_point in enumerate(poly):
-        # if index is 0, compare to the last point
-        if i == 0:
-            prev_point = poly[-1]
-        else:
-            prev_point = poly[i-1]
-
-        # euclidean distance
-        dist = (curr_point[0][0] - prev_point[0][0]) ** 2 + (curr_point[0][1] - prev_point[0][1]) ** 2
-        
-        lengths.append(dist)
-    return lengths
-
-# checks if all side lengths are within 1 + dist % of the mean
-def dist_from_mean_within(lengths, dist):
-    mean = sum(lengths) / len(lengths)
-
-    for l in lengths:
-        if l > mean * dist:
-            return False
-    
-    return True
-
-def weighted_average(dict):
-    val_sum = 0
-    for v in dict.values():
-        val_sum += v
-    
-    average = 0
-
-    for k,v in dict.items():
-        average += k * (v / val_sum)
-
-    return average
+from app.utilities import *
+from app.aruco import marker_lookup_table
 
 
-def draw_grid(img, grid_shape, color=(0, 255, 0), thickness=1):
-    h, w, _ = img.shape
-    rows, cols = grid_shape
-    dy, dx = h / rows, w / cols
-
-    # draw vertical lines
-    for x in np.linspace(start=dx, stop=w-dx, num=cols-1):
-        x = int(round(x))
-        cv2.line(img, (x, 0), (x, h), color=color, thickness=thickness)
-
-    # draw horizontal lines
-    for y in np.linspace(start=dy, stop=h-dy, num=rows-1):
-        y = int(round(y))
-        cv2.line(img, (0, y), (w, y), color=color, thickness=thickness)
-
-    return img
-
-
-with open('aruco.json', 'r') as f:
-    markers = json.load(f)
-
-marker_lookup = {}
-
-# converts integer representation of markers to binary grid for later use in image analysis
-for i, orientations in enumerate(markers):
-    for marker in orientations:
-        bin_repr1 = format(marker[0], '08b')
-        bin_repr2 = format(marker[1], '08b')
-        code = (bin_repr1[:4], bin_repr1[4:], bin_repr2[:4], bin_repr2[4:])
-        marker_lookup[code] = i
-
-print(marker_lookup)
-
-directory = "aruco/shadows_only"
+directory = "aruco/custom_aruco"
 images = [directory + '\\' + os.fsdecode(f) for f in os.listdir(os.fsencode(directory))]
 sleep = 1000000
 standard_height = 3000
 marker_size = 4
 marker_size += 2 # accounting for boundary pixels
 
-USE_VIDEO = True
+USE_VIDEO = False
 
 if USE_VIDEO:
     vid = cv2.VideoCapture(2)
@@ -164,170 +80,172 @@ while True:
         area = cv2.contourArea(c)
 
         # considers "significant" contours
-        if area > 200_000:
-            approx = cv2.approxPolyDP(c, 0.009 * cv2.arcLength(c, True), True)
-            
-            # only looking for four sided polygons
-            if len(approx) == 4:
-                print("target found with correct area and sides")
+        if area < 200_000: continue
+        approx = cv2.approxPolyDP(c, 0.009 * cv2.arcLength(c, True), True)
+        
+        # only looking for four sided polygons
+        if len(approx) != 4: continue
+        print("target found with correct area and sides")
 
-                lengths = get_poly_lengths(approx)
-                # checks if lengths are within a % of the mean, approximately square
-                if dist_from_mean_within(lengths, 3):
-                    print("side length ratio correct")
-                    
-                    # contour converted to mask
-                    mask = np.zeros(img_bw.shape, np.uint8)
+        lengths = get_poly_lengths(approx)
+        # checks if lengths are within a % of the mean, approximately square
+        if not dist_from_mean_within(lengths, 3): continue
+        print("side length ratio correct")
+        
+        # contour converted to mask
+        mask = np.zeros(img_bw.shape, np.uint8)
 
-                    # stripping double nested list
-                    points = [x[0] for x in approx.tolist()]
+        # stripping double nested list
+        points = [x[0] for x in approx.tolist()]
 
-                    sum_point = [0,0]
-                    for p in points:
-                        sum_point[0] += p[0]
-                        sum_point[1] += p[1]
-                    
-                    avg_point = [int(sum_point[0] / 4), int(sum_point[1] / 4)]
+        sum_point = [0,0]
+        for p in points:
+            sum_point[0] += p[0]
+            sum_point[1] += p[1]
+        
+        avg_point = [int(sum_point[0] / 4), int(sum_point[1] / 4)]
 
-                    normalized_points = [ [x[0] - avg_point[0], x[1] - avg_point[1]] for x in points ]
+        # import pdb; pdb.set_trace()
 
-                    print(points)
-                    print(normalized_points)
-                    print(avg_point)
+        normalized_points = [ [x[0] - avg_point[0], x[1] - avg_point[1]] for x in points ]
 
-                    normalized_points.sort(key=lambda x: math.atan2(x[1], x[0]), reverse=False)
+        print(points)
+        print(normalized_points)
+        print(avg_point)
 
-                    side_lengths = [
-                        get_dist(normalized_points[0], normalized_points[1]),
-                        get_dist(normalized_points[1], normalized_points[2]),
-                        get_dist(normalized_points[2], normalized_points[3]),
-                        get_dist(normalized_points[3], normalized_points[0])
-                    ]
+        normalized_points.sort(key=lambda x: math.atan2(x[1], x[0]), reverse=False)
 
-                    print(normalized_points)
+        side_lengths = [
+            get_dist(normalized_points[0], normalized_points[1]),
+            get_dist(normalized_points[1], normalized_points[2]),
+            get_dist(normalized_points[2], normalized_points[3]),
+            get_dist(normalized_points[3], normalized_points[0])
+        ]
 
-                    size = int(max(side_lengths))
+        print(normalized_points)
 
-                    print(side_lengths)
-                    print(size)
+        size = int(max(side_lengths))
 
-                    src = np.float32(approx)
-                    dst = np.float32([[0,0], [size-1, 0], [size-1, size-1], [0, size-1]])
+        print(side_lengths)
+        print(size)
 
-                    H_mat = cv2.getPerspectiveTransform(src, dst)
+        src = np.float32(approx)
+        dst = np.float32([[0,0], [size-1, 0], [size-1, size-1], [0, size-1]])
 
-                    normalized_marker_size = 256
+        H_mat = cv2.getPerspectiveTransform(src, dst)
 
-                    corrected_marker = cv2.warpPerspective(img, H_mat, (size, size), flags=cv2.INTER_NEAREST)
-                    normalized_marker = cv2.resize(corrected_marker, (normalized_marker_size, normalized_marker_size))
+        normalized_marker_size = 256
 
-                    draw_grid(normalized_marker, (6, 6))
+        corrected_marker = cv2.warpPerspective(img, H_mat, (size, size), flags=cv2.INTER_NEAREST)
+        normalized_marker = cv2.resize(corrected_marker, (normalized_marker_size, normalized_marker_size))
 
-                    show_image(normalized_marker, 'square')
+        draw_grid(normalized_marker, (6, 6))
+
+        show_image(normalized_marker, 'square')
 
 
-                    cv2.drawContours(mask, [approx], 0, (255), -1)
-                    # used to mask and isolate from grayscale image
-                    subset = cv2.bitwise_and(img_bw, img_bw, mask=mask)
+        cv2.drawContours(mask, [approx], 0, (255), -1)
+        # used to mask and isolate from grayscale image
+        subset = cv2.bitwise_and(img_bw, img_bw, mask=mask)
 
-                    # histogram calculated for each match
-                    hist = cv2.calcHist([img_bw], [0], mask, [256], (0, 256), accumulate=False)
+        # histogram calculated for each match
+        hist = cv2.calcHist([img_bw], [0], mask, [256], (0, 256), accumulate=False)
 
-                    # all code below is histogram processing
-                    # calculates the two distinct values for that sample
-                    # (in ideal case this is the black and white of the code)
+        # all code below is histogram processing
+        # calculates the two distinct values for that sample
+        # (in ideal case this is the black and white of the code)
 
-                    # converting to python list
-                    hist_dict = {}
-                    hist_list = [int(x[0]) for x in hist.tolist()]
+        # converting to python list
+        hist_dict = {}
+        hist_list = [int(x[0]) for x in hist.tolist()]
 
-                    # avg val / 2
-                    clamp_value = (sum(hist_list) / len(hist_list)) / 2
+        # avg val / 2
+        clamp_value = (sum(hist_list) / len(hist_list)) / 2
 
-                    for i, val in enumerate(hist_list):
-                        # clamps values below 100 to 0, better show gap between histogram peaks
-                        hist_dict[i] = val if val > clamp_value else 0
+        for i, val in enumerate(hist_list):
+            # clamps values below 100 to 0, better show gap between histogram peaks
+            hist_dict[i] = val if val > clamp_value else 0
 
-                    segments = []
+        segments = []
+        curr_segment = {}
+
+        for key, val in hist_dict.items():
+            if val != 0:
+                curr_segment[key] = val
+            else:
+                if len(curr_segment):
+                    segments.append(curr_segment)
                     curr_segment = {}
 
-                    for key, val in hist_dict.items():
-                        if val != 0:
-                            curr_segment[key] = val
-                        else:
-                            if len(curr_segment):
-                                segments.append(curr_segment)
-                                curr_segment = {}
+        # sorted by segment length in descending order
+        segments.sort(key=lambda x: len(x), reverse=True)
 
-                    # sorted by segment length in descending order
-                    segments.sort(key=lambda x: len(x), reverse=True)
+        cv2.drawContours(img_thresh3, [approx], 0, (0, 255, 0), 5)
 
-                    cv2.drawContours(img_thresh3, [approx], 0, (0, 255, 0), 5)
+        # plt.figure()
+        # plt.plot(hist, color="red")
+        # plt.title("Value")
+        # plt.show()
 
-                    # plt.figure()
-                    # plt.plot(hist, color="red")
-                    # plt.title("Value")
-                    # plt.show()
+        if (len(segments) < 2):
+            print("less than 2 values detected, discarding")
+            continue
 
-                    if (len(segments) < 2):
-                        print("less than 2 values detected, discarding")
-                        continue
+        min_segment_width = 5
 
-                    min_segment_width = 5
+        if (len(segments[0]) < min_segment_width) or (len(segments[1]) < min_segment_width):
+            print("value peak width less than 5, discarding")
+            continue
 
-                    if (len(segments[0]) < min_segment_width) or (len(segments[1]) < min_segment_width):
-                        print("value peak width less than 5, discarding")
-                        continue
+        # checks that there are two distinct value peaks with a width > 5 distinct values
+        
+        value1 = weighted_average(segments[0])
+        value2 = weighted_average(segments[1])
 
-                    # checks that there are two distinct value peaks with a width > 5 distinct values
-                    
-                    value1 = weighted_average(segments[0])
-                    value2 = weighted_average(segments[1])
+        if value1 > value2:
+            value_high = value1
+            value_low = value2
+        else:
+            value_high = value2
+            value_low = value1
 
-                    if value1 > value2:
-                        value_high = value1
-                        value_low = value2
-                    else:
-                        value_high = value2
-                        value_low = value1
+        # print(area)
+        print(value_high, value_low)
+        # show_image(subset, 'mask')
 
-                    # print(area)
-                    print(value_high, value_low)
-                    # show_image(subset, 'mask')
+        # pixel_threshold = (value_high + value_low) / 2
+        pixel_threshold = normalized_marker.sum() / (len(normalized_marker) * len(normalized_marker[0]))
+        pixel_size = normalized_marker_size / marker_size
 
-                    # pixel_threshold = (value_high + value_low) / 2
-                    pixel_threshold = normalized_marker.sum() / (len(normalized_marker) * len(normalized_marker[0]))
-                    pixel_size = normalized_marker_size / marker_size
+        marker_code = []
 
-                    marker_code = []
+        for py in range(marker_size):
+            sub_code = ''
+            for px in range(marker_size):
+                pr = int(px * pixel_size)
+                pl = int(pr + pixel_size)
+                pt = int(py * pixel_size)
+                pb = int(pt + pixel_size)
+                # print(pr, pt)
+                pixel = normalized_marker[pt:pb, pr:pl]
+                # show_image(pixel, f"{px}:{py}")
+                pixel_sum = pixel.sum()
+                pixel_avg = pixel_sum / pixel_size ** 2
+                pixel_value = int(pixel_avg) > pixel_threshold
 
-                    for py in range(marker_size):
-                        sub_code = ''
-                        for px in range(marker_size):
-                            pr = int(px * pixel_size)
-                            pl = int(pr + pixel_size)
-                            pt = int(py * pixel_size)
-                            pb = int(pt + pixel_size)
-                            # print(pr, pt)
-                            pixel = normalized_marker[pt:pb, pr:pl]
-                            # show_image(pixel, f"{px}:{py}")
-                            pixel_sum = pixel.sum()
-                            pixel_avg = pixel_sum / pixel_size ** 2
-                            pixel_value = int(pixel_avg) > pixel_threshold
+                if (px != 0) and (py != 0) and (px != marker_size - 1) and (py != marker_size - 1):
+                    sub_code += '1' if pixel_value else '0'
 
-                            if (px != 0) and (py != 0) and (px != marker_size - 1) and (py != marker_size - 1):
-                                sub_code += '1' if pixel_value else '0'
+                print('X' if pixel_value else ' ', end="")
+            print()
+            if sub_code:
+                marker_code.append(sub_code)
+        print(marker_code)
+        marker_id = marker_lookup_table.get(tuple(marker_code))
+        print('MATCH FOUND:', marker_id)
 
-                            print('X' if pixel_value else ' ', end="")
-                        print()
-                        if sub_code:
-                            marker_code.append(sub_code)
-                    print(marker_code)
-                    marker_id = marker_lookup.get(tuple(marker_code))
-                    print('MATCH FOUND:', marker_id)
-
-                    cv2.drawContours(img_thresh3, [approx], 0, (0, 0, 255), 5)
-                
+        cv2.drawContours(img_thresh3, [approx], 0, (0, 0, 255), 5)
+            
     # show_image(np.hstack((img_clahe, img_clahe_blurred, img_clahe_diff)), "clahe", (600*3, 800))
     show_image(np.hstack((to3(img_bw), to3(img_bw_diff), img_thresh3)), "pipeline", (600*3, 800))
 
