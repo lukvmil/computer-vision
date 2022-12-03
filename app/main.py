@@ -5,17 +5,26 @@ import os
 import math
 
 from app.utilities import *
-from app.aruco import marker_lookup_table
+from app.aruco import *
 
 
 directory = "aruco/custom_aruco"
 images = [directory + '\\' + os.fsdecode(f) for f in os.listdir(os.fsencode(directory))]
+marker_lookup_table = load_markers('aruco.json')
+# print(marker_lookup_table)
+
+# for key in marker_lookup_table.keys():
+#     for i in key: print(i)
+#     print()
+#     if marker_lookup_table[key] != 0: break
+
+
 sleep = 1000000
-standard_height = 3000
+standard_height = 800
 marker_size = 4
 marker_size += 2 # accounting for boundary pixels
 
-USE_VIDEO = False
+USE_VIDEO = True
 
 if USE_VIDEO:
     vid = cv2.VideoCapture(2)
@@ -25,7 +34,7 @@ if USE_VIDEO:
 # kernelizied correlation filters
 # trackerkcf
 
-img_id = 0
+img_id = 18
 while True:
     if USE_VIDEO:
         ret, img = vid.read()
@@ -43,92 +52,89 @@ while True:
 
     img_bw = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # calculates two gaussian blurs with a small and large kernel size
-    # each one is diffed with the original image for edge detection
-    img_bw_blurred_low = cv2.GaussianBlur(img_bw, (11, 11), 0)
-    img_bw_diff_low = cv2.absdiff(img_bw, img_bw_blurred_low)
-
-    img_bw_blurred_high = cv2.GaussianBlur(img_bw, (51, 51), 0)
-    img_bw_diff_high = cv2.absdiff(img_bw, img_bw_blurred_high)
-
     # the high and low pass are diffed to remove noise / softer edges form shadows
-    img_bw_diff = cv2.absdiff(img_bw_diff_high, img_bw_diff_low)
+
+    img_blur_diff_lg, avg_blur_diff_lg = diff_of_blurs(img_bw, 11, 51)
+    img_blur_diff_md, avg_blur_diff_md = diff_of_blurs(img_bw, 7, 31)
+    img_blur_diff_sm, avg_blur_diff_sm = diff_of_blurs(img_bw, 5, 21)
+
+    img_bw_diff = img_blur_diff_sm
+
+    show_image(img_blur_diff_lg, "11-51")
+    show_image(img_blur_diff_md, "7-31")
+    show_image(img_blur_diff_sm, "5-21")
 
     # use three different pairs and pick the best = highest mean pixel value
 
     # clahe applied for alternate pipeline, this was less effective than other approach
-    clahe = cv2.createCLAHE(clipLimit = 10)
-    img_clahe = clahe.apply(img_bw)
+    # clahe = cv2.createCLAHE(clipLimit = 0, tileGridSize=(4,4))
+    # img_clahe = clahe.apply(img_bw)
 
     # img_clahe_blurred = cv2.GaussianBlur(img_clahe, (51, 51), 0)
     # img_clahe_diff = cv2.absdiff(img_clahe, img_clahe_blurred)
 
     # img_clahe_thresh = cv2.threshold(img_clahe_diff, 170, 255, cv2.THRESH_BINARY_INV)[1]
 
-    # morphological operations, thresholindg
-    img_bw_close = cv2.morphologyEx(img_bw_diff, cv2.MORPH_CLOSE, make_kernel(5), iterations=1)
-    img_thresh = cv2.threshold(img_bw_diff, 20, 255, cv2.THRESH_BINARY)[1]
-    img_thresh_close = cv2.morphologyEx(img_thresh, cv2.MORPH_CLOSE, make_kernel(5), iterations=1)
-    img_thresh_dilate = cv2.dilate(img_thresh_close, make_kernel(5), iterations=3)
+    # morphological operations, thresholding
+    img_bw_close = cv2.morphologyEx(img_bw_diff, cv2.MORPH_CLOSE, make_kernel(3), iterations=1)
+    img_thresh = cv2.threshold(img_bw_diff, 10, 255, cv2.THRESH_BINARY)[1]
+    img_thresh_close = cv2.morphologyEx(img_thresh, cv2.MORPH_CLOSE, make_kernel(3), iterations=1)
+    img_thresh_dilate = cv2.dilate(img_thresh_close, make_kernel(3), iterations=3)
+
+    img_thresh_dilate = img_thresh_close
 
     # contours detected from dilated edge
     contours, _ = cv2.findContours(img_thresh_dilate, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
+
     img_thresh3 = to3(img_thresh_dilate)
 
-    for c in contours:
-        area = cv2.contourArea(c)
+    contour_list = [[x, cv2.contourArea(x)] for x in contours]
+    contour_list.sort(key=lambda x: x[1], reverse=True)
 
-        # considers "significant" contours
-        if area < 200_000: continue
-        approx = cv2.approxPolyDP(c, 0.009 * cv2.arcLength(c, True), True)
-        
-        # only looking for four sided polygons
-        if len(approx) != 4: continue
-        print("target found with correct area and sides")
+    areas = [x[1] for x in contour_list]
 
-        lengths = get_poly_lengths(approx)
-        # checks if lengths are within a % of the mean, approximately square
-        if not dist_from_mean_within(lengths, 3): continue
-        print("side length ratio correct")
-        
-        # contour converted to mask
-        mask = np.zeros(img_bw.shape, np.uint8)
+    # contour_list = []
 
-        # stripping double nested list
+    for contour, area in contour_list[:10]: 
+        # if area < 200_000: continue
+
+        perimeter = cv2.arcLength(contour, True)
+        epsilon = 0.05 # 0.009
+
+        approx = cv2.approxPolyDP(contour, epsilon * perimeter, True)
+
+        # converting to a python list
         points = [x[0] for x in approx.tolist()]
 
-        sum_point = [0,0]
-        for p in points:
-            sum_point[0] += p[0]
-            sum_point[1] += p[1]
+        # only looking for four sided polygons
+        if len(points) != 4: 
+            cv2.drawContours(img_thresh3, [approx], 0, (0, 255, 255), 5)
+            continue
+
+        side_lengths = get_poly_lengths(points)
         
-        avg_point = [int(sum_point[0] / 4), int(sum_point[1] / 4)]
+        angles = get_poly_angles(points)
+        abs_angles = [abs(x) for x in angles]
+        min_angle = min(abs_angles)
 
-        # import pdb; pdb.set_trace()
+        if min_angle < 20:
+            cv2.drawContours(img_thresh3, [approx], 0, (255, 0, 0), 5)
+            continue
 
+        # checks if lengths are within a % of the mean, approximately square
+        if not dist_from_mean_within(side_lengths, 3): 
+            cv2.drawContours(img_thresh3, [approx], 0, (0, 0, 255), 5)
+            print('EXCLUDED')
+            continue
+
+        avg_point = average_point(points)
         normalized_points = [ [x[0] - avg_point[0], x[1] - avg_point[1]] for x in points ]
 
-        print(points)
-        print(normalized_points)
-        print(avg_point)
-
+        # sorting in a clockwise order using reverse tangents
         normalized_points.sort(key=lambda x: math.atan2(x[1], x[0]), reverse=False)
 
-        side_lengths = [
-            get_dist(normalized_points[0], normalized_points[1]),
-            get_dist(normalized_points[1], normalized_points[2]),
-            get_dist(normalized_points[2], normalized_points[3]),
-            get_dist(normalized_points[3], normalized_points[0])
-        ]
-
-        print(normalized_points)
-
         size = int(max(side_lengths))
-
-        print(side_lengths)
-        print(size)
-
         src = np.float32(approx)
         dst = np.float32([[0,0], [size-1, 0], [size-1, size-1], [0, size-1]])
 
@@ -136,124 +142,68 @@ while True:
 
         normalized_marker_size = 256
 
-        corrected_marker = cv2.warpPerspective(img, H_mat, (size, size), flags=cv2.INTER_NEAREST)
+        corrected_marker = cv2.warpPerspective(img_bw, H_mat, (size, size), flags=cv2.INTER_NEAREST)
         normalized_marker = cv2.resize(corrected_marker, (normalized_marker_size, normalized_marker_size))
 
-        draw_grid(normalized_marker, (6, 6))
+        normalized_marker3 = to3(normalized_marker)
 
-        show_image(normalized_marker, 'square')
+        draw_grid(normalized_marker3, (6, 6))
 
+        segments = process_histogram(normalized_marker)
 
-        cv2.drawContours(mask, [approx], 0, (255), -1)
-        # used to mask and isolate from grayscale image
-        subset = cv2.bitwise_and(img_bw, img_bw, mask=mask)
+        # if (len(segments) < 2):
+        #     # print("less than 2 values detected, discarding")
+        #     cv2.drawContours(img_thresh3, [approx], 0, (255, 0, 0), 5)
+        #     continue
 
-        # histogram calculated for each match
-        hist = cv2.calcHist([img_bw], [0], mask, [256], (0, 256), accumulate=False)
+        # min_segment_width = 5
 
-        # all code below is histogram processing
-        # calculates the two distinct values for that sample
-        # (in ideal case this is the black and white of the code)
-
-        # converting to python list
-        hist_dict = {}
-        hist_list = [int(x[0]) for x in hist.tolist()]
-
-        # avg val / 2
-        clamp_value = (sum(hist_list) / len(hist_list)) / 2
-
-        for i, val in enumerate(hist_list):
-            # clamps values below 100 to 0, better show gap between histogram peaks
-            hist_dict[i] = val if val > clamp_value else 0
-
-        segments = []
-        curr_segment = {}
-
-        for key, val in hist_dict.items():
-            if val != 0:
-                curr_segment[key] = val
-            else:
-                if len(curr_segment):
-                    segments.append(curr_segment)
-                    curr_segment = {}
-
-        # sorted by segment length in descending order
-        segments.sort(key=lambda x: len(x), reverse=True)
-
-        cv2.drawContours(img_thresh3, [approx], 0, (0, 255, 0), 5)
-
-        # plt.figure()
-        # plt.plot(hist, color="red")
-        # plt.title("Value")
-        # plt.show()
-
-        if (len(segments) < 2):
-            print("less than 2 values detected, discarding")
-            continue
-
-        min_segment_width = 5
-
-        if (len(segments[0]) < min_segment_width) or (len(segments[1]) < min_segment_width):
-            print("value peak width less than 5, discarding")
-            continue
+        # if (len(segments[0]) < min_segment_width) or (len(segments[1]) < min_segment_width):
+        #     # print("value peak width less than 5, discarding")
+        #     cv2.drawContours(img_thresh3, [approx], 0, (255, 0, 0), 5)
+        #     continue
 
         # checks that there are two distinct value peaks with a width > 5 distinct values
         
-        value1 = weighted_average(segments[0])
-        value2 = weighted_average(segments[1])
+        # value1 = weighted_average(segments[0])
+        # value2 = weighted_average(segments[1])
 
-        if value1 > value2:
-            value_high = value1
-            value_low = value2
-        else:
-            value_high = value2
-            value_low = value1
-
-        # print(area)
-        print(value_high, value_low)
-        # show_image(subset, 'mask')
+        # if value1 > value2:
+        #     value_high = value1
+        #     value_low = value2
+        # else:
+        #     value_high = value2
+        #     value_low = value1
 
         # pixel_threshold = (value_high + value_low) / 2
+
         pixel_threshold = normalized_marker.sum() / (len(normalized_marker) * len(normalized_marker[0]))
         pixel_size = normalized_marker_size / marker_size
 
-        marker_code = []
+        marker_code = read_marker(normalized_marker, pixel_threshold, pixel_size, marker_size)
 
-        for py in range(marker_size):
-            sub_code = ''
-            for px in range(marker_size):
-                pr = int(px * pixel_size)
-                pl = int(pr + pixel_size)
-                pt = int(py * pixel_size)
-                pb = int(pt + pixel_size)
-                # print(pr, pt)
-                pixel = normalized_marker[pt:pb, pr:pl]
-                # show_image(pixel, f"{px}:{py}")
-                pixel_sum = pixel.sum()
-                pixel_avg = pixel_sum / pixel_size ** 2
-                pixel_value = int(pixel_avg) > pixel_threshold
-
-                if (px != 0) and (py != 0) and (px != marker_size - 1) and (py != marker_size - 1):
-                    sub_code += '1' if pixel_value else '0'
-
-                print('X' if pixel_value else ' ', end="")
-            print()
-            if sub_code:
-                marker_code.append(sub_code)
         print(marker_code)
         marker_id = marker_lookup_table.get(tuple(marker_code))
         print('MATCH FOUND:', marker_id)
+        show_image(normalized_marker3, 'square')
 
-        cv2.drawContours(img_thresh3, [approx], 0, (0, 0, 255), 5)
+        if marker_id is not None:
+            show_image(normalized_marker3, 'marker ' + str(marker_id))
+            print('ANGLES', angles)
+
+            cv2.drawContours(img_thresh3, [approx], 0, (0, 255, 0), 5)
+            cv2.drawContours(img, [approx], 0, (0, 255, 0), 5)
+        else:
+            cv2.drawContours(img_thresh3, [approx], 0, (0, 0, 255), 5)
             
     # show_image(np.hstack((img_clahe, img_clahe_blurred, img_clahe_diff)), "clahe", (600*3, 800))
-    show_image(np.hstack((to3(img_bw), to3(img_bw_diff), img_thresh3)), "pipeline", (600*3, 800))
+    show_image(np.hstack((img, to3(img_bw_diff), img_thresh3)), "pipeline", (600*3, 800))
+    # show_image(np.hstack((to3(img_thresh), to3(img_thresh_close), to3(img_thresh_dilate), img_thresh3)), "diff", (600*3, 800))
+
+    # show_image(img_clahe, 'clahe')
 
     # show_image(img, 'img')
     # show_image(img_bw, 'img_bw')
-    # show_image(img_bw_blurred_high, "blurred_high")
-    # show_image(img_bw_diff_low, "diff_low")
-    # show_image(img_bw_diff_high, "diff_high")
     # show_image(img_bw_diff, "combined_diff")
     # show_image(img_bw_close, "closed")
     # show_image(img_thresh, "thresh")

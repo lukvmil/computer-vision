@@ -26,10 +26,49 @@ def get_poly_lengths(poly):
             prev_point = poly[i-1]
 
         # euclidean distance
-        dist = (curr_point[0][0] - prev_point[0][0]) ** 2 + (curr_point[0][1] - prev_point[0][1]) ** 2
-        
+        # dist = (curr_point[0][0] - prev_point[0][0]) ** 2 + (curr_point[0][1] - prev_point[0][1]) ** 2
+        dist = get_dist(curr_point, prev_point)
+
         lengths.append(dist)
     return lengths
+
+def get_poly_angles(points):
+    a = points - np.roll(points, 1, axis=0)
+    b = np.roll(a, -1, axis=0)
+
+    alengths = np.linalg.norm(a, axis=1)
+    blengths = np.linalg.norm(b, axis=1)
+
+    dotproducts = [-np.dot(a[i], b[i]) for i in range(len(a))] / alengths / blengths
+    cross = lambda x,y:np.cross(x,y)
+    crossproducts = cross(a, b) / alengths / blengths
+
+    cos_angles = np.arccos(dotproducts)
+    cos_angles_degrees = np.degrees(cos_angles)
+
+    sin_angles = np.arcsin(crossproducts)
+    sin_angles_degrees = sin_angles / np.pi * 180
+
+    final_angles = []
+
+    if len([x < 0 for x in sin_angles_degrees]) > 2:
+        sin_angles_degrees = -sin_angles_degrees
+
+    for i in range(len(sin_angles)):
+        sin_angle = sin_angles_degrees[i]
+        cos_angle = cos_angles_degrees[i]
+
+        if (sin_angle > 0) == (cos_angle > 0):
+            final_angles.append(cos_angle)
+        else:
+            final_angles.append(360 - cos_angle)
+
+
+    # print(sin_angles_degrees)
+    # print(cos_angles_degrees)
+
+    return sin_angles_degrees
+        
 
 # checks if all side lengths are within 1 + dist % of the mean
 def dist_from_mean_within(lengths, dist):
@@ -70,3 +109,64 @@ def draw_grid(img, grid_shape, color=(0, 255, 0), thickness=1):
         cv2.line(img, (0, y), (w, y), color=color, thickness=thickness)
 
     return img
+
+
+def average_point(points):
+    sum_x, sum_y = 0, 0
+
+    for p in points:
+        sum_x += p[0]
+        sum_y += p[1]
+    
+    return int(sum_x / len(points)), int(sum_y / len(points))
+    
+
+def process_histogram(image):
+    # histogram calculated for each match
+    hist = cv2.calcHist([image], [0], None, [256], (0, 256), accumulate=False)
+
+    # all code below is histogram processing
+    # calculates the two distinct values for that sample
+    # (in ideal case this is the black and white of the code)
+
+    # converting to python list
+    hist_dict = {}
+    hist_list = [int(x[0]) for x in hist.tolist()]
+
+    # avg val / 2
+    clamp_value = (sum(hist_list) / len(hist_list)) / 2
+
+    for i, val in enumerate(hist_list):
+        # clamps values below 100 to 0, better show gap between histogram peaks
+        hist_dict[i] = val if val > clamp_value else 0
+
+    segments = []
+    curr_segment = {}
+
+    for key, val in hist_dict.items():
+        if val != 0:
+            curr_segment[key] = val
+        else:
+            if len(curr_segment):
+                segments.append(curr_segment)
+                curr_segment = {}
+
+    # sorted by segment length in descending order
+    segments.sort(key=lambda x: len(x), reverse=True)
+    
+    # plt.figure()
+    # plt.plot(hist, color="red")
+    # plt.title("Value")
+    # plt.show()
+
+    return segments
+
+
+def diff_of_blurs(img, k1, k2):
+        img_blur_low = cv2.GaussianBlur(img, (k1, k1), 0)
+        img_blur_high = cv2.GaussianBlur(img, (k2, k2), 0)
+        img_blur_diff = cv2.absdiff(img_blur_high, img_blur_low)
+
+        mean_value = img_blur_diff.sum() / (len(img_blur_diff) * len(img_blur_diff[0]))
+
+        return img_blur_diff, mean_value
