@@ -34,7 +34,7 @@ if USE_VIDEO:
 # kernelizied correlation filters
 # trackerkcf
 
-img_id = 18
+img_id = 20
 while True:
     if USE_VIDEO:
         ret, img = vid.read()
@@ -60,9 +60,9 @@ while True:
 
     img_bw_diff = img_blur_diff_sm
 
-    show_image(img_blur_diff_lg, "11-51")
-    show_image(img_blur_diff_md, "7-31")
-    show_image(img_blur_diff_sm, "5-21")
+    # show_image(img_blur_diff_lg, "11-51")
+    # show_image(img_blur_diff_md, "7-31")
+    # show_image(img_blur_diff_sm, "5-21")
 
     # use three different pairs and pick the best = highest mean pixel value
 
@@ -145,9 +145,7 @@ while True:
         corrected_marker = cv2.warpPerspective(img_bw, H_mat, (size, size), flags=cv2.INTER_NEAREST)
         normalized_marker = cv2.resize(corrected_marker, (normalized_marker_size, normalized_marker_size))
 
-        normalized_marker3 = to3(normalized_marker)
-
-        draw_grid(normalized_marker3, (6, 6))
+        
 
         segments = process_histogram(normalized_marker)
 
@@ -180,24 +178,31 @@ while True:
         pixel_threshold = normalized_marker.sum() / (len(normalized_marker) * len(normalized_marker[0]))
         pixel_size = normalized_marker_size / marker_size
 
-        marker_code = read_marker(normalized_marker, pixel_threshold, pixel_size, marker_size)
+        marker_code = read_marker(normalized_marker, pixel_threshold, pixel_size, marker_size, 15)
+
+        normalized_marker3 = to3(normalized_marker)
+
+        draw_grid(normalized_marker3, (6, 6))
 
         print(marker_code)
         marker_id = marker_lookup_table.get(tuple(marker_code))
         print('MATCH FOUND:', marker_id)
-        show_image(normalized_marker3, 'square')
+        # show_image(normalized_marker3, 'square')
 
         if marker_id is not None:
-            show_image(normalized_marker3, 'marker ' + str(marker_id))
+            # show_image(normalized_marker3, 'marker ' + str(marker_id))
             print('ANGLES', angles)
 
             cv2.drawContours(img_thresh3, [approx], 0, (0, 255, 0), 5)
             cv2.drawContours(img, [approx], 0, (0, 255, 0), 5)
+            cv2.putText(img, str(marker_id), avg_point, cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 4, cv2.LINE_AA)
         else:
+            # show_image(normalized_marker3, 'marker ' + str(marker_code))
             cv2.drawContours(img_thresh3, [approx], 0, (0, 0, 255), 5)
             
     # show_image(np.hstack((img_clahe, img_clahe_blurred, img_clahe_diff)), "clahe", (600*3, 800))
-    show_image(np.hstack((img, to3(img_bw_diff), img_thresh3)), "pipeline", (600*3, 800))
+    # show_image(np.hstack((img, to3(img_bw_diff), img_thresh3)), "pipeline", (600*3, 800))
+    show_image(img, "main")
     # show_image(np.hstack((to3(img_thresh), to3(img_thresh_close), to3(img_thresh_dilate), img_thresh3)), "diff", (600*3, 800))
 
     # show_image(img_clahe, 'clahe')
