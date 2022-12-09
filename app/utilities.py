@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+from app import config
 
 def show_image(img, title="", size=(600, 800)):
     cv2.namedWindow(title, cv2.WINDOW_KEEPRATIO)
@@ -93,20 +94,22 @@ def weighted_average(dict):
     return average
 
 
-def draw_grid(img, grid_shape, color=(0, 255, 0), thickness=1):
+def draw_grid(img, grid_shape, color=(255, 0, 0), thickness=1, offset=config.sub_pixel_offset):
     h, w, _ = img.shape
     rows, cols = grid_shape
-    dy, dx = h / rows, w / cols
+    dy, dx = int(round(h / rows)), int(round(w / cols))
 
     # draw vertical lines
-    for x in np.linspace(start=dx, stop=w-dx, num=cols-1):
-        x = int(round(x))
+    for x in range(dx, w, dx):
         cv2.line(img, (x, 0), (x, h), color=color, thickness=thickness)
 
     # draw horizontal lines
-    for y in np.linspace(start=dy, stop=h-dy, num=rows-1):
-        y = int(round(y))
+    for y in range(dy, h, dy):
         cv2.line(img, (0, y), (w, y), color=color, thickness=thickness)
+
+    for x in range(0, h, dy):
+        for y in range(0, w, dx):
+            cv2.rectangle(img, (x+offset,y+offset), (x+dx-offset, y+dy-offset), color=(0,255,0), thickness=thickness)
 
     return img
 

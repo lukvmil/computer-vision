@@ -16,8 +16,6 @@ def load_markers(filename):
             marker_lookup_table[code] = i
             mirror_code = (bin_repr1[:4][::-1], bin_repr1[4:][::-1], bin_repr2[:4][::-1], bin_repr2[4:][::-1])
             marker_lookup_table[mirror_code] = i
-            print(code)
-            print(mirror_code)
     
     return marker_lookup_table
 
@@ -25,28 +23,34 @@ def load_markers(filename):
 def read_marker(image, threshold, pixel_size, marker_size, offset):
     marker_code = []
 
+    pixel_averages = [[None for y in range(marker_size)] for x in range(marker_size)]
+
     for py in range(marker_size):
         sub_code = ''
         for px in range(marker_size):
+            # bounding box of pixel in grid
             pl = int(px * pixel_size) 
             pr = int(pl + pixel_size)
             pt = int(py * pixel_size)
             pb = int(pt + pixel_size)
-            print()
-            print(f"{pt}:{pb}, {pl}:{pr}")
-            print(f"{pt+offset}:{pb-offset}, {pl+offset}:{pr-offset}")
+            # print()
+            # print(f"{pt}:{pb}, {pl}:{pr}")
+            # print(f"{pt+offset}:{pb-offset}, {pl+offset}:{pr-offset}")
+
+            # sub image calculated and offset applied to consider the center subpixel
             pixel = image[pt:pb, pl:pr]
             pixel = pixel[offset:-offset, offset:-offset]
             pixel_sum = pixel.sum()
             pixel_avg = int(pixel_sum / (pixel_size  - 2 * offset) ** 2)
-            print(pixel_size, offset, pixel_size - 2 * offset)
-            print(pixel_sum, pixel_avg)
+
+            pixel_averages[py][px] = pixel_avg
+            # print(pixel_size, offset, pixel_size - 2 * offset)
+            # print(pixel_sum, pixel_avg)
 
             pixel_value = int(pixel_avg) > threshold
 
             font_color = (0,0,0) if pixel_value else (255, 255, 255)
             cv2.putText(image, str(pixel_avg), (pl, pb), cv2.FONT_HERSHEY_SIMPLEX, 0.5, font_color, 1, cv2.LINE_AA)
-
 
             if (px != 0) and (py != 0) and (px != marker_size - 1) and (py != marker_size - 1):
                 sub_code += '1' if pixel_value else '0'
@@ -55,5 +59,11 @@ def read_marker(image, threshold, pixel_size, marker_size, offset):
         # print()
         if sub_code:
             marker_code.append(sub_code)
+    
+    # for row in pixel_averages:
+    #     for pixel in row:
+    #         print(pixel, end=' ')
+    #     print()
+    # print()
 
     return marker_code

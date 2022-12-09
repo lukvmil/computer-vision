@@ -1,0 +1,15 @@
+USE_VIDEO = True
+DEBUG = False
+directory = "aruco\\custom_aruco\\valid"
+video_feed = 0
+standard_height = 1200
+marker_size = 4
+min_angle = 20
+min_area = 1000
+sub_pixel_offset = 15
+duplicate_marker_min_distance = 10
+search_n_largest_contours = 10
+poly_approx_epsilon = 0.05
+normalized_marker_size = 256
+binary_threshold_low  = 5
+binary_threshold_high = 20
