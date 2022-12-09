@@ -1,6 +1,6 @@
-USE_VIDEO = True
+USE_VIDEO = False
 DEBUG = False
-directory = "aruco\\custom_aruco\\valid"
+directory = "example_markers"
 video_feed = 0
 standard_height = 1200
 marker_size = 4
