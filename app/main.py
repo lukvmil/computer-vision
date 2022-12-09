@@ -23,6 +23,7 @@ if config.USE_VIDEO:
     sleep = 1
 
 detection_count = 0
+frames = 0
 
 img_id = 0
 while True:
@@ -215,11 +216,15 @@ while True:
                 cv2.drawContours(img_thresh3, [approx], 0, (0, 0, 255), stroke)
                 cv2.drawContours(img, [approx], 0, (0, 0, 255), stroke)
             
-    show_image(np.hstack((img, to3(img_bw_diff), img_thresh3)), "pipeline", (600*3, 800))
-    show_image(img, "main")
+    if config.DEBUG:
+        show_image(np.hstack((img, to3(img_bw_diff), img_thresh3)), "pipeline", (600*3, 800))
+    else:
+        show_image(img, "main")
 
     if marker_detected:
         detection_count += 1
+
+    frames += 1
     
     action = cv2.waitKey(sleep)
     if action & 0xFF == 27:
@@ -240,5 +245,4 @@ if config.USE_VIDEO:
 
 cv2.destroyAllWindows()
 
-if config.DEBUG:
-    print(f"{detection_count}/{img_id} detected markers")
+print(f"{detection_count}/{frames if config.USE_VIDEO else img_id} detected markers")
